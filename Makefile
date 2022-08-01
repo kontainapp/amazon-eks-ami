@@ -4,15 +4,15 @@ PACKER_VARIABLES := aws_region ami_name binary_bucket_name binary_bucket_region 
 K8S_VERSION_PARTS := $(subst ., ,$(kubernetes_version))
 K8S_VERSION_MINOR := $(word 1,${K8S_VERSION_PARTS}).$(word 2,${K8S_VERSION_PARTS})
 
-aws_region ?= $(AWS_DEFAULT_REGION)
-binary_bucket_region ?= $(AWS_DEFAULT_REGION)
+aws_region ?= $(REGION)
+binary_bucket_region ?= $(REGION)
 arch ?= x86_64
 ifeq ($(arch), arm64)
 instance_type ?= m6g.large
-ami_name ?= kontain-amazon-eks-arm64-node-$(K8S_VERSION_MINOR)-v$(shell date +'%Y%m%d')
+ami_name ?= kontain-eks-arm64-node-$(K8S_VERSION_MINOR)-${AMI_VERSION}
 else
 instance_type ?= m4.large
-ami_name ?= kontain-amazon-eks-node-$(K8S_VERSION_MINOR)-v$(shell date +'%Y%m%d')
+ami_name ?= kontain-eks-node-$(K8S_VERSION_MINOR)-${AMI_VERSION}
 endif
 
 ifeq ($(aws_region), cn-northwest-1)
@@ -22,6 +22,7 @@ endif
 ifeq ($(aws_region), us-gov-west-1)
 source_ami_owners ?= 045324592363
 endif
+
 
 T_RED := \e[0;31m
 T_GREEN := \e[0;32m
