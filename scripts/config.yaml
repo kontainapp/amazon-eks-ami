@@ -8,8 +8,7 @@ data:
 
     ROOT_MOUNT_DIR="${ROOT_MOUNT_DIR:-/root}"
 
-    echo logging the instance this is running on for debugging purposes
-    chroot ${ROOT_MOUNT_DIR} echo running on $(hostname)
+    chroot ${ROOT_MOUNT_DIR} 
 
     CONTAINERD_CFG_DIR="${CONTAINERD_CFG_DIR:-/etc/containerd}"
 

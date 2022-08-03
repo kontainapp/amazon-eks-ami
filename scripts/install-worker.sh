@@ -297,7 +297,7 @@ sudo systemctl disable kubelet
 sudo mkdir /kontain_bin
 sudo tar -xvf $TEMPLATE_DIR/kontain_bin.tar.gz -C $TEMPLATE_DIR
 
-sudo chmod +x  $TEMPLATE_DIR/kkm.run
+sudo chmod +x $TEMPLATE_DIR/kkm.run
 
 # Install kkm driver
 echo "build and install KKM driver"

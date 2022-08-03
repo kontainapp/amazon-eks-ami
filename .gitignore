@@ -6,4 +6,4 @@ launch-config.json
 node-role-trust-policy.json
 node-trust-policy.json
 user_data.txt
-manifest-1.22.9.json
+manifest-*.json
