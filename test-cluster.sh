@@ -5,6 +5,7 @@ region=us-east-2
 ami_id=''
 cleanup_only=''
 
+arg_count=$#
 for arg in "$@"
 do
    case "$arg" in
@@ -15,14 +16,10 @@ do
         ami_id="${1#*=}"
         ;;
         --cleanup)
-            cleanup_only='yes'
+            cleanup='yes'
     esac
     shift
 done
-
-echo REGION = $region 
-echo AMI = $ami_id
-echo DO Cleanup $cleanup_only
 
 ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
 
@@ -31,14 +28,18 @@ readonly stack_name=kontain-eks-vpc-stack
 readonly cluster_role=kontainAmazonEKSClusterRole
 readonly cluster_name=kontain-eks-cluster
 readonly node_role=kontainAmazonEKSNodeRole
-readonly cni_node_role=kontainAmazonEKSCNINodeRole
 readonly launch_template_name=kontain-eks-launch-template
 readonly node_group_name=kontain-eks-node-grooup
 readonly fingerprint=0FD7A5400B4769A5DB5A5FCF4BC970FDF2FD236F
+readonly deployment_name=kontain-test-app
 
 do_cleanup() {
     echo "cleanup"
     
+    echo "delete load balancer"
+    elb_name=$(kubectl get svc $deployment_name --output=json |jq -r '.status | .loadBalancer | .ingress | .[0] |.hostname' | awk -F- '{print $1}')
+    aws --region=$region elb delete-load-balancer --load-balancer-name=$elb_name
+
     echo "delete nodegroup"
     aws --no-paginate --region=$region eks delete-nodegroup --cluster-name $cluster_name --nodegroup-name $node_group_name --output text > /dev/null
     aws --no-paginate --region=$region eks wait nodegroup-deleted --cluster-name $cluster_name --nodegroup-name $node_group_name
@@ -69,12 +70,6 @@ do_cleanup() {
         --role-name $node_role --output text > /dev/null
     aws --region=$region iam delete-role --role-name $node_role
 
-    echo "delete CNI role"
-    aws --region=$region iam detach-role-policy \
-        --policy-arn arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy \
-        --role-name $cni_node_role --output text > /dev/null
-    aws --region=$region iam delete-role --role-name $cni_node_role --output text > /dev/null
-
     echo "delete cluster role"
     aws --region=$region iam detach-role-policy \
         --policy-arn arn:aws:iam::aws:policy/AmazonEKSClusterPolicy \
@@ -89,7 +84,6 @@ do_cleanup() {
     rm -f cluster-role-trust-policy.json 
     rm -f user_data.txt
     rm -f launch-config.json
-    rm -f vpc-cni-trust-policy.json
     rm -f node-trust-policy.json
 }
 
@@ -150,22 +144,22 @@ aws --region=$region ec2 authorize-security-group-ingress --group-id ${SECURITY_
 aws --region=$region ec2 authorize-security-group-ingress --group-id ${SECURITY_GROUP_IDS} \
     --protocol tcp \
     --port 443 \
-    --cidr 0.0.0.0/0
+    --cidr 0.0.0.0/0 > /dev/null
 
 aws --region=$region ec2 authorize-security-group-ingress --group-id ${SECURITY_GROUP_IDS} \
     --protocol tcp \
     --port 10250 \
-    --cidr 0.0.0.0/0
+    --cidr 0.0.0.0/0 > /dev/null
 
 aws --region=$region ec2 authorize-security-group-ingress --group-id ${SECURITY_GROUP_IDS} \
     --protocol tcp \
     --port 53 \
-    --cidr 0.0.0.0/0
+    --cidr 0.0.0.0/0 > /dev/null
 
 aws --region=$region ec2 authorize-security-group-ingress --group-id ${SECURITY_GROUP_IDS} \
     --protocol udp \
     --port 53 \
-    --cidr 0.0.0.0/0
+    --cidr 0.0.0.0/0 > /dev/null
 
 echo "create cluster role"
 CLUSTER_ROLE_ARN=$(aws --region=$region iam create-role \
@@ -223,43 +217,6 @@ aws --region=$region iam attach-role-policy \
   --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore \
   --role-name $node_role --output text > /dev/null
 
-# echo "create VCP CNI node trust policy"
-# cat << EOF > vpc-cni-trust-policy.json
-# {
-#     "Version": "2012-10-17",
-#     "Statement": [
-#         {
-#             "Effect": "Allow",
-#             "Principal": {
-#                 "Federated": "arn:aws:iam::${ACCOUNT_ID}:oidc-provider/${OIDC_PROVIDER}"
-#             },
-#             "Action": "sts:AssumeRoleWithWebIdentity",
-#             "Condition": {
-#                 "StringEquals": {
-#                     "${OIDC_PROVIDER}:aud": "sts.amazonaws.com",
-#                     "${OIDC_PROVIDER}:sub": "system:serviceaccount:kube-system:aws-node"
-#                 }
-#             }
-#         }
-#     ]
-# }
-# EOF
-
-
-# echo "     create VPC CNI role"
-# VPC_CNI_ROLE_ARN=$(aws --region $region iam create-role --role-name $cni_node_role --assume-role-policy-document file://vpc-cni-trust-policy.json \
-#     | jq -r '.Role |.Arn')
-
-# aws --region=$region iam attach-role-policy \
-#   --policy-arn arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy \
-#   --role-name $cni_node_role --output text > /dev/null
-
-# echo "    annotate kubernetis aws-node service with VPC CNI Role"
-# kubectl annotate serviceaccount \
-#     --overwrite serviceaccount
-#     default \
-#     eks.amazonaws.com/role-arn=${VPC_CNI_ROLE_ARN}
-
 echo "create launch template"
 cat << EOF > user_data.txt
 #!/bin/bash
@@ -284,37 +241,58 @@ cat << EOF > launch-config.json
 EOF
 
 aws --region=$region ec2  create-launch-template --launch-template-name $launch_template_name \
-    --launch-template-data file://launch-config.json
+    --launch-template-data file://launch-config.json > /dev/null
 
 echo "create node group with subnets ${SUBNET_IDS}"
 aws --region=$region eks create-nodegroup --cluster-name $cluster_name --nodegroup-name $node_group_name \
     --launch-template name=$launch_template_name,version='$Latest' \
     --subnets ${SUBNET_IDS} \
     --node-role ${NODE_ROLE_ARN} \
-    --scaling-config minSize=1,maxSize=1,desiredSize=1
+    --scaling-config minSize=1,maxSize=1,desiredSize=1 > /dev/null
 echo "wait for nodegrop to be active"
 aws --region=$region eks wait nodegroup-active --cluster-name $cluster_name --nodegroup-name $node_group_name
 
 echo "init containerd"
 kubectl apply -f scripts/config.yaml
 
-# echo wait for pod to start
-#kubectl -n kube-system wait pod --for=condition=Ready -l name=kontain-node-initializer --timeout=420s
+echo "wait for kontain initializer to complete"
+kubectl -n kube-system wait pod --for=condition=Ready -l name=kontain-node-initializer --timeout=420s
 
 echo "apply Kontain enabled application image"
 kubectl apply -f scripts/k8s.yaml
 
-kubectl -n default wait pod --for=condition=Ready -l app=golang-http-hello
+echo "wait for application to be ready"
+kubectl -n default wait pod --for=condition=Ready -l app=$deployment_name --timeout=420s
 
-echo "setup port forwarding"
-kubectl port-forward svc/golang-http-hello 8080:8080 2>/dev/null &
+echo "expose external IP via LoadBalancer"
+# This worked - No port forwarding
+kubectl expose deployment $deployment_name --type=LoadBalancer --name=$deployment_name
 
-$PAGE=$(curl -vvv http://localhost:8080)
+echo "wait for external IP to be assigned"
+external_ip=
+while [ -z "$external_ip" ]
+do 
+    external_ip=$(kubectl get svc $deployment_name --output=json |jq -r '.status | .loadBalancer | .ingress | .[0] |.hostname')
+    if [ -z "$external_ip" ]
+    then
+        echo -n "."
+        sleep 10 
+    fi
+done
+echo "End point ready-${external_ip}"
 
-echo PAGE === ${PAGE}
+PAGE=$(curl --data x= http://${external_ip}:8080 | grep "kontain.KKM")
+
+
+if [ -z ${PAGE} ]; then
+    echo Error: DWEB did not return expected page
+    ERROR_CODE=1
+else
+    echo ${PAGE}
+fi;
 }
 
-if [[ ! -z $cleanup_only ]]; then
+if [ ! -z $cleanup ] && [ $arg_count == 1 ]; then
     do_cleanup
     exit
 fi
@@ -323,5 +301,8 @@ fi
 
 main
 
-#do_cleanup
+#clean at the end if requested
+if [ ! -z $cleanup ]; then 
+    do_cleanup
+fi
 

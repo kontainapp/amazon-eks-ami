@@ -186,6 +186,11 @@
             "type": "manifest",
             "output": "{{user `ami_name`}}-manifest.json",
             "strip_path": true
+        },
+        {
+            "type": "manifest",
+            "output": "manifest-{{ user `kubernetes_version`}}.json",
+            "strip_path": true
         }
     ]
 }
