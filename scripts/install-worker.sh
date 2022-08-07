@@ -291,50 +291,6 @@ sudo systemctl daemon-reload
 # Disable the kubelet until the proper dropins have been configured
 sudo systemctl disable kubelet
 
-################################################################################
-### Kontain ########################################################################
-###############################################################################
-sudo mkdir /kontain_bin
-sudo tar -xvf $TEMPLATE_DIR/kontain_bin.tar.gz -C $TEMPLATE_DIR
-
-sudo chmod +x $TEMPLATE_DIR/kkm.run
-
-# Install kkm driver
-echo "build and install KKM driver"
-sudo $TEMPLATE_DIR/kkm.run
-
-# Install KM Binaries
-sudo mkdir -p /opt/kontain/bin
-sudo cp $TEMPLATE_DIR/km/km /opt/kontain/bin/km
-sudo cp $TEMPLATE_DIR/container-runtime/krun /opt/kontain/bin/krun
-sudo cp $TEMPLATE_DIR/cloud/k8s/deploy/shim/containerd-shim-krun-v2 /usr/bin/containerd-shim-krun-v2
-
-# TODO: Install containerd config. Dependent on EKS retiring dockershim in their AMI.
-containerd_conf_file="/etc/containerd/config.toml"
-runtime="krun"
-configuration="configuration"
-pluginid=cri
-
-if grep -q "version = 2\>" $containerd_conf_file; then
-    pluginid=\"io.containerd.grpc.v1.cri\"
-fi
-
-runtime_table="plugins.${pluginid}.containerd.runtimes.$runtime"
-runtime_type="io.containerd.$runtime.v2"
-options_table="$runtime_table.options"
-config_path=""
-if grep -q "\[$runtime_table\]" $containerd_conf_file; then
-    echo "Configuration exists for $runtime_table, overwriting"
-    exit 1
-fi
-
-sudo cat <<-EOT | sudo tee -a $containerd_conf_file
-    [$runtime_table]
-    runtime_type = "${runtime_type}"
-    privileged_without_host_devices = true
-    pod_annotations = ["app.kontain.*"]
-EOT
-
 
 ################################################################################
 ### EKS ########################################################################
@@ -379,6 +335,31 @@ fi
 
 sudo yum install -y amazon-ssm-agent
 
+
+###############################################################################
+### Kontain Install and cofiguration###########################################
+###############################################################################
+sudo tar -xvf $TEMPLATE_DIR/kontain_bin.tar.gz -C $TEMPLATE_DIR
+
+sudo chmod +x $TEMPLATE_DIR/kkm.run
+
+# Install kkm driver
+echo "build and install KKM driver"
+sudo $TEMPLATE_DIR/kkm.run
+
+# Install KM Binaries
+sudo mkdir -p /opt/kontain/bin
+sudo cp $TEMPLATE_DIR/km/km /opt/kontain/bin/km
+sudo cp $TEMPLATE_DIR/container-runtime/krun /opt/kontain/bin/krun
+sudo cp $TEMPLATE_DIR/cloud/k8s/deploy/shim/containerd-shim-krun-v2 /usr/bin/containerd-shim-krun-v2
+
+# download kubectl as we will need it to complete configuration during bootstrap
+# sudo curl -o /opt/kontain/bin/kubectl https://s3.us-west-2.amazonaws.com/amazon-eks/1.22.6/2022-03-09/bin/linux/amd64/kubectl
+# sudo chmod +x /opt/kontain/bin/kubectl
+
+sudo mkdir -p /opt/kontain/config
+sudo mv $TEMPLATE_DIR/kontain-runtime-class.yaml /opt/kontain/config/kontain-runtime-class.yaml
+
 ################################################################################
 ### AMI Metadata ###############################################################
 ################################################################################
@@ -410,6 +391,7 @@ EOF
 echo fs.inotify.max_user_watches=524288 | sudo tee -a /etc/sysctl.conf
 echo fs.inotify.max_user_instances=8192 | sudo tee -a /etc/sysctl.conf
 echo vm.max_map_count=524288 | sudo tee -a /etc/sysctl.conf
+
 
 
 ################################################################################

@@ -17,3 +17,8 @@ runtime_type = "io.containerd.runc.v2"
 [plugins."io.containerd.grpc.v1.cri".cni]
 bin_dir = "/opt/cni/bin"
 conf_dir = "/etc/cni/net.d"
+
+[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.krun]
+runtime_type = "io.containerd.krun.v2"
+privileged_without_host_devices = true
+pod_annotations = ["app.kontain.*"]
