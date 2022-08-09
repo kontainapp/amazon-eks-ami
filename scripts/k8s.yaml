@@ -1,0 +1,22 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kontain-test-app
+spec:
+  selector:
+    matchLabels:
+      run: kontain-test-app
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        run: kontain-test-app
+    spec:
+      runtimeClassName: kontain
+      containers:
+        - name: kontain-test-app
+          image: docker.io/kontainapp/runenv-dweb
+          command: ["./dweb", "8080"]
+          ports:
+            - containerPort: 8080

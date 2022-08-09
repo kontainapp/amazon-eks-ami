@@ -4,15 +4,15 @@ PACKER_VARIABLES := aws_region ami_name binary_bucket_name binary_bucket_region 
 K8S_VERSION_PARTS := $(subst ., ,$(kubernetes_version))
 K8S_VERSION_MINOR := $(word 1,${K8S_VERSION_PARTS}).$(word 2,${K8S_VERSION_PARTS})
 
-aws_region ?= $(AWS_DEFAULT_REGION)
-binary_bucket_region ?= $(AWS_DEFAULT_REGION)
+aws_region ?= $(REGION)
+binary_bucket_region ?= $(REGION)
 arch ?= x86_64
 ifeq ($(arch), arm64)
 instance_type ?= m6g.large
-ami_name ?= kontain-amazon-eks-arm64-node-$(K8S_VERSION_MINOR)-v$(shell date +'%Y%m%d')
+ami_name ?= kontain-eks-arm64-node-$(K8S_VERSION_MINOR)-${AMI_VERSION}
 else
 instance_type ?= m4.large
-ami_name ?= kontain-amazon-eks-node-$(K8S_VERSION_MINOR)-v$(shell date +'%Y%m%d')
+ami_name ?= kontain-eks-node-$(K8S_VERSION_MINOR)-${AMI_VERSION}
 endif
 
 ifeq ($(aws_region), cn-northwest-1)
@@ -57,3 +57,8 @@ k8s: validate
 .PHONY: 1.22
 1.22:
 	$(MAKE) k8s kubernetes_version=1.22.9 kubernetes_build_date=2022-06-03 pull_cni_from_github=true
+
+test-1.22: 
+	./scripts/make-cluster.sh --region=$(shell cat manifest-1.22.9.json | jq -r '.builds[-1].artifact_id' | cut -d':' -f1) --ami=$(shell cat manifest-1.22.9.json | jq -r '.builds[-1].artifact_id' | cut -d':' -f2)
+	./test-cluster.sh
+	./scripts/make-cluster.sh --cleanup

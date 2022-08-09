@@ -1,3 +1,9 @@
 *manifest.json
 *.swp
 .idea
+eks-key.pem
+launch-config.json
+node-role-trust-policy.json
+node-trust-policy.json
+user_data.txt
+manifest-*.json
