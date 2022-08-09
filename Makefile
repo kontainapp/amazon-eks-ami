@@ -59,4 +59,6 @@ k8s: validate
 	$(MAKE) k8s kubernetes_version=1.22.9 kubernetes_build_date=2022-06-03 pull_cni_from_github=true
 
 test-1.22: 
-	./test-cluster.sh --region=${REGION} --ami=$(shell cat manifest-1.22.9.json | jq -r '.builds[-1].artifact_id' | cut -d':' -f2) --cleanup
+	./scripts/make-cluster.sh --region=$(shell cat manifest-1.22.9.json | jq -r '.builds[-1].artifact_id' | cut -d':' -f1) --ami=$(shell cat manifest-1.22.9.json | jq -r '.builds[-1].artifact_id' | cut -d':' -f2)
+	./test-cluster.sh
+	./scripts/make-cluster.sh --cleanup

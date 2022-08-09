@@ -28,7 +28,7 @@ readonly cluster_role=kontainAmazonEKSClusterRole
 readonly cluster_name=kontain-eks-cluster
 readonly node_role=kontainAmazonEKSNodeRole
 readonly launch_template_name=kontain-eks-launch-template
-readonly node_group_name=kontain-eks-node-grooup
+readonly node_group_name=kontain-eks-node-group
 readonly fingerprint=0FD7A5400B4769A5DB5A5FCF4BC970FDF2FD236F
 
 do_cleanup() {
@@ -88,169 +88,208 @@ do_cleanup() {
 
 main() {
 
-cat << EOF > cluster-role-trust-policy.json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Principal": {
-        "Service": "eks.amazonaws.com"
-      },
-      "Action": "sts:AssumeRole"
-    }
-  ]
-}
-EOF
+    echo "create key pair"
+    if [ ! -f $key_pair_name.pem ]; then 
+        aws --region=$region ec2 create-key-pair --key-name $key_pair_name --query 'KeyMaterial' --output text > $key_pair_name.pem
+        chmod 400 $key_pair_name.pem
+    else
+        echo "  already exists"
+    fi
 
+    echo "create Cloudformation VPC Stack"
 
-echo "create key pair"
-aws --region=$region ec2 create-key-pair --key-name $key_pair_name --query 'KeyMaterial' --output text > $key_pair_name.pem
-chmod 400 $key_pair_name.pem
+    VPC_DESC=$(aws --region=$region cloudformation describe-stacks --stack-name $stack_name --query "Stacks[0].Outputs" 2> /dev/null)
+    RET=$?
+    if [ $RET != 0 ]; then  
+        STACK_ID=$(aws cloudformation create-stack \
+        --region $region \
+        --stack-name $stack_name \
+        --template-body file://scripts/amazon-eks-vpc-stack.yaml \
+        | jq -r '.StackId')
+        echo STACK_ID = ${STACK_ID}
 
-echo "create Cloudformation VPC Stack"
-STACK_ID=$(aws cloudformation create-stack \
-  --region $region \
-  --stack-name $stack_name \
-  --template-body file://scripts/amazon-eks-vpc-stack.yaml \
-   | jq -r '.StackId')
-echo STACK_ID = ${STACK_ID}
+        echo "waiting for stack to be created"
+        aws --no-paginate --region $region cloudformation wait stack-create-complete --stack-name $stack_name
 
-echo "waiting for stack to be created"
-aws --no-paginate --region $region cloudformation wait stack-create-complete --stack-name $stack_name
+        VPC_DESC=$(aws --region=$region cloudformation describe-stacks --stack-name $stack_name --query "Stacks[0].Outputs")
+    else
+        echo "  already exists"
+    fi
 
-VPC_DESC=$(aws --region=$region cloudformation describe-stacks --stack-name $stack_name --query "Stacks[0].Outputs")
-echo VPC_DESC = ${VPC_DESC}
+    SECURITY_GROUP_IDS=$(echo ${VPC_DESC} | jq -r '.[] | select(.OutputKey | contains("SecurityGroups")) | .OutputValue')
+    SUBNET_IDS=$(echo ${VPC_DESC} | jq -r '.[] | select(.OutputKey | contains("SubnetIds")) | .OutputValue' | tr ',' ' ')
+    VPC_CONFIG=$(echo ${VPC_DESC} \
+        | jq -r '[ .[] | select(.OutputKey | contains("SecurityGroups")), select(.OutputKey | contains("SubnetIds")) | .OutputValue ]' \
+        | jq -rj '"securityGroupIds=", .[0], ",subnetIds=", .[1]')
 
-SECURITY_GROUP_IDS=$(echo ${VPC_DESC} | jq -r '.[] | select(.OutputKey | contains("SecurityGroups")) | .OutputValue')
-SUBNET_IDS=$(echo ${VPC_DESC} | jq -r '.[] | select(.OutputKey | contains("SubnetIds")) | .OutputValue' | tr ',' ' ')
-VPC_CONFIG=$(echo ${VPC_DESC} \
-    | jq -r '[ .[] | select(.OutputKey | contains("SecurityGroups")), select(.OutputKey | contains("SubnetIds")) | .OutputValue ]' \
-    | jq -rj '"securityGroupIds=", .[0], ",subnetIds=", .[1]')
-echo VPC_CONFIG = ${VPC_CONFIG}
+    if [ $RET != 0 ]; then  
+        echo "add ingress rules"
+        aws --region=$region ec2 authorize-security-group-ingress --group-id ${SECURITY_GROUP_IDS} \
+            --protocol tcp \
+            --port 22 \
+            --cidr 0.0.0.0/0
 
-echo "add ingress rules"
-aws --region=$region ec2 authorize-security-group-ingress --group-id ${SECURITY_GROUP_IDS} \
-    --protocol tcp \
-    --port 22 \
-    --cidr 0.0.0.0/0
+        aws --region=$region ec2 authorize-security-group-ingress --group-id ${SECURITY_GROUP_IDS} \
+            --protocol tcp \
+            --port 80 \
+            --cidr 0.0.0.0/0
 
-aws --region=$region ec2 authorize-security-group-ingress --group-id ${SECURITY_GROUP_IDS} \
-    --protocol tcp \
-    --port 80 \
-    --cidr 0.0.0.0/0
+        aws --region=$region ec2 authorize-security-group-ingress --group-id ${SECURITY_GROUP_IDS} \
+            --protocol tcp \
+            --port 443 \
+            --cidr 0.0.0.0/0 > /dev/null
 
-aws --region=$region ec2 authorize-security-group-ingress --group-id ${SECURITY_GROUP_IDS} \
-    --protocol tcp \
-    --port 443 \
-    --cidr 0.0.0.0/0 > /dev/null
+        aws --region=$region ec2 authorize-security-group-ingress --group-id ${SECURITY_GROUP_IDS} \
+            --protocol tcp \
+            --port 10250 \
+            --cidr 0.0.0.0/0 > /dev/null
 
-aws --region=$region ec2 authorize-security-group-ingress --group-id ${SECURITY_GROUP_IDS} \
-    --protocol tcp \
-    --port 10250 \
-    --cidr 0.0.0.0/0 > /dev/null
+        aws --region=$region ec2 authorize-security-group-ingress --group-id ${SECURITY_GROUP_IDS} \
+            --protocol tcp \
+            --port 53 \
+            --cidr 0.0.0.0/0 > /dev/null
 
-aws --region=$region ec2 authorize-security-group-ingress --group-id ${SECURITY_GROUP_IDS} \
-    --protocol tcp \
-    --port 53 \
-    --cidr 0.0.0.0/0 > /dev/null
+        aws --region=$region ec2 authorize-security-group-ingress --group-id ${SECURITY_GROUP_IDS} \
+            --protocol udp \
+            --port 53 \
+            --cidr 0.0.0.0/0 > /dev/null
+    fi
 
-aws --region=$region ec2 authorize-security-group-ingress --group-id ${SECURITY_GROUP_IDS} \
-    --protocol udp \
-    --port 53 \
-    --cidr 0.0.0.0/0 > /dev/null
+    echo "create cluster role"
+    CLUSTER_ROLE_ARN=$(aws --region=$region iam   get-role --role-name $cluster_role  2> /dev/null | jq -r '.Role |.Arn')
+    if [ -z ${CLUSTER_ROLE_ARN} ]; then
+        echo "  create cluster policy config file"
+        json_string='{
+        "Version": "2012-10-17",
+            "Statement": [
+                {
+                "Effect": "Allow",
+                "Principal": {
+                    "Service": "eks.amazonaws.com"
+                },
+                "Action": "sts:AssumeRole"
+                }
+            ]
+        }'
+        echo "$json_string" > cluster-role-trust-policy.json
+        echo "  create role"
+        CLUSTER_ROLE_ARN=$(aws --region=$region iam create-role \
+        --role-name $cluster_role \
+        --assume-role-policy-document file://cluster-role-trust-policy.json |jq -r '.Role |.Arn')
 
-echo "create cluster role"
-CLUSTER_ROLE_ARN=$(aws --region=$region iam create-role \
-  --role-name $cluster_role \
-  --assume-role-policy-document file://cluster-role-trust-policy.json |jq -r '.Role |.Arn')
-echo CLUSTER_ROLE_ARN = ${CLUSTER_ROLE_ARN}
+        echo "  attach policies"
+        aws --region=$region iam attach-role-policy \
+        --policy-arn arn:aws:iam::aws:policy/AmazonEKSClusterPolicy \
+        --role-name $cluster_role --output text > /dev/null
+    else
+        echo "  already exists"
+    fi
 
-aws --region=$region iam attach-role-policy \
-  --policy-arn arn:aws:iam::aws:policy/AmazonEKSClusterPolicy \
-  --role-name $cluster_role --output text > /dev/null
+    echo "create cluster"
+    CLUSTER_ARN=$(aws --region=$region --no-paginate eks describe-cluster --name $cluster_name  2> /dev/null | jq -r '.cluster | .arn')
+    if [ -z ${CLUSTER_ARN} ]; then 
+        aws --region=$region eks create-cluster --name $cluster_name \
+        --role-arn ${CLUSTER_ROLE_ARN} \
+        --resources-vpc-config ${VPC_CONFIG} --output text > /dev/null
 
-echo "create cluster"
-aws --region=$region eks create-cluster --name $cluster_name \
---role-arn ${CLUSTER_ROLE_ARN} \
---resources-vpc-config ${VPC_CONFIG} --output text > /dev/null
+        echo " waiting for cluster to become active"
+        aws --no-paginate --region=$region eks wait cluster-active --name $cluster_name
+    else 
+        echo " already exists"
+    fi
 
-echo "wait for cluster to become active"
-aws --no-paginate --region=$region eks wait cluster-active --name $cluster_name
+    echo "create a kubeconfig file for cluster"
+    aws --region=$region eks update-kubeconfig --name $cluster_name
 
-echo "create a kubeconfig file for cluster"
-aws --region=$region eks update-kubeconfig --name $cluster_name
+    echo "create node role"
+    NODE_ROLE_ARN=$(aws --region=$region iam get-role --role-name $node_role  2> /dev/null | jq -r '.Role |.Arn')
+    if [ -z ${NODE_ROLE_ARN} ]; then
+        echo "  create node policy config file"
+        json_string='{
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                "Effect": "Allow",
+                "Principal": {
+                    "Service": "ec2.amazonaws.com"
+                },
+                "Action": "sts:AssumeRole"
+                }
+            ]
+        }'
+        echo "$json_string" >  node-trust-policy.json 
 
-echo "create node role"
-echo "     create node policy config file"
-cat << EOF > node-trust-policy.json 
-{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-        "Effect": "Allow",
-        "Principal": {
-            "Service": "ec2.amazonaws.com"
-        },
-        "Action": "sts:AssumeRole"
-        }
-    ]
-}
-EOF
-echo "     create aws role"
-NODE_ROLE_ARN=$(aws --region $region iam create-role --role-name $node_role --assume-role-policy-document file://node-trust-policy.json \
-    | jq -r '.Role |.Arn')
+        echo "  create node role"
+        NODE_ROLE_ARN=$(aws --region $region iam create-role --role-name $node_role --assume-role-policy-document file://node-trust-policy.json \
+            | jq -r '.Role |.Arn')
 
-echo "     assign policies"
-aws --region=$region iam attach-role-policy \
-  --policy-arn arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy \
-  --role-name $node_role --output text > /dev/null
-aws --region=$region iam attach-role-policy \
-  --policy-arn arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly \
-  --role-name $node_role --output text > /dev/null
-aws --region=$region iam attach-role-policy \
-  --policy-arn arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy \
-  --role-name $node_role --output text > /dev/null
-aws --region=$region iam attach-role-policy \
-  --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore \
-  --role-name $node_role --output text > /dev/null
+        echo "  assign policies"
+        aws --region=$region iam attach-role-policy \
+        --policy-arn arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy \
+        --role-name $node_role --output text > /dev/null
+        aws --region=$region iam attach-role-policy \
+        --policy-arn arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly \
+        --role-name $node_role --output text > /dev/null
+        aws --region=$region iam attach-role-policy \
+        --policy-arn arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy \
+        --role-name $node_role --output text > /dev/null
+        aws --region=$region iam attach-role-policy \
+        --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore \
+        --role-name $node_role --output text > /dev/null
+    else 
+        echo "already exists"
+    fi
 
-echo "create launch template"
-#/etc/eks/bootstrap.sh $cluster_name --container-runtime containerd 
-cat << EOF > user_data.txt
-#!/bin/bash
-/etc/eks/bootstrap.sh $cluster_name
-EOF
+    echo "create launch template"
+    aws --region=$region ec2 describe-launch-templates --launch-template-names kontain-eks-launch-template --output text >& /dev/null
+    RET=$?
+    if [ $RET != 0 ]; then  
+        json_string="#!/bin/bash
+/etc/eks/bootstrap.sh $cluster_name"
 
-USER_DATA=$(base64 --wrap=0 user_data.txt)
+        echo "$json_string" > user_data.txt
+        
+        USER_DATA=$(base64 --wrap=0 user_data.txt)
 
-cat << EOF > launch-config.json
-{
-    "ImageId":        "$ami_id",
-    "InstanceType":   "t3.small",
-    "KeyName":       "$key_pair_name",
-    "UserData": "${USER_DATA}",
-    "NetworkInterfaces": [
-        {
-            "DeviceIndex": 0,
-            "Groups": ["${SECURITY_GROUP_IDS}"]
-        }
-    ]
-}
-EOF
+        json_string=$(jq  -n \
+            "{
+                \"ImageId\":        \"$ami_id\",
+                \"InstanceType\":   \"t3.small\",
+                \"KeyName\":       \"$key_pair_name\",
+                \"UserData\": \"$USER_DATA\",
+                \"NetworkInterfaces\": [
+                    {
+                        \"DeviceIndex\": 0,
+                        \"Groups\": [\"$SECURITY_GROUP_IDS\"]
+                    }
+                ]
+            }")
+        echo "$json_string" > launch-config.json
 
-aws --region=$region ec2  create-launch-template --launch-template-name $launch_template_name \
-    --launch-template-data file://launch-config.json > /dev/null
+        aws --region=$region ec2  create-launch-template --launch-template-name $launch_template_name \
+            --launch-template-data file://launch-config.json > /dev/null
+    else
+        echo "already exists"
+    fi
 
-echo "create node group with subnets ${SUBNET_IDS}"
-aws --region=$region eks create-nodegroup --cluster-name $cluster_name --nodegroup-name $node_group_name \
-    --launch-template name=$launch_template_name,version='$Latest' \
-    --subnets ${SUBNET_IDS} \
-    --node-role ${NODE_ROLE_ARN} \
-    --scaling-config minSize=1,maxSize=1,desiredSize=1 > /dev/null
-echo "wait for nodegrop to be active"
-aws --region=$region eks wait nodegroup-active --cluster-name $cluster_name --nodegroup-name $node_group_name
-
+    echo "create node group with subnets ${SUBNET_IDS}"
+    NODE_GROUP_STATUS=$(aws --region=$region eks describe-nodegroup --cluster-name $cluster_name --nodegroup-name $node_group_name 2> /dev/null | jq -r  '.nodegroup | .status')
+    echo "NODE_GROUP_STATUS = $NODE_GROUP_STATUS"
+    if [ ! -z $NODE_GROUP_STATUS ] && [ $NODE_GROUP_STATUS == "DELETING" ]; then 
+        echo "  node group deleting - wait for completing"
+        aws --no-paginate --region=$region eks wait nodegroup-deleted --cluster-name $cluster_name --nodegroup-name $node_group_name
+    elif [ -z $NODE_GROUP_STATUS ]; then 
+        echo "  creating node group"
+        aws --region=$region eks create-nodegroup --cluster-name $cluster_name --nodegroup-name $node_group_name \
+            --launch-template name=$launch_template_name,version='$Latest' \
+            --subnets ${SUBNET_IDS} \
+            --node-role ${NODE_ROLE_ARN} \
+            --scaling-config minSize=1,maxSize=1,desiredSize=1 > /dev/null
+    else   
+        echo "already exists"
+    fi
+    echo "wait for nodegrop to be active"
+    aws --region=$region eks wait nodegroup-active --cluster-name $cluster_name --nodegroup-name $node_group_name
 }
 
 if [ ! -z $cleanup ] && [ $arg_count == 1 ]; then
