@@ -353,13 +353,6 @@ sudo cp $TEMPLATE_DIR/km/km /opt/kontain/bin/km
 sudo cp $TEMPLATE_DIR/container-runtime/krun /opt/kontain/bin/krun
 sudo cp $TEMPLATE_DIR/cloud/k8s/deploy/shim/containerd-shim-krun-v2 /usr/bin/containerd-shim-krun-v2
 
-# download kubectl as we will need it to complete configuration during bootstrap
-# sudo curl -o /opt/kontain/bin/kubectl https://s3.us-west-2.amazonaws.com/amazon-eks/1.22.6/2022-03-09/bin/linux/amd64/kubectl
-# sudo chmod +x /opt/kontain/bin/kubectl
-
-sudo mkdir -p /opt/kontain/config
-sudo mv $TEMPLATE_DIR/kontain-runtime-class.yaml /opt/kontain/config/kontain-runtime-class.yaml
-
 ################################################################################
 ### AMI Metadata ###############################################################
 ################################################################################
