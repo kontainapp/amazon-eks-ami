@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 deployment_name=kontain-test-app
 
@@ -29,7 +29,7 @@ echo "End point ready - ${external_ip}"
 PAGE=$(curl --retry-delay 10 --retry 50 --data x= http://${external_ip}:8080 | grep "kontain.KKM")
 
 ERROR_CODE=0
-if [ -z ${PAGE} ]; then
+if [ -z "${PAGE}" ]; then
     echo Error: DWEB did not return expected page
     ERROR_CODE=1
 else

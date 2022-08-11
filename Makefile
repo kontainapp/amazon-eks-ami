@@ -61,4 +61,4 @@ k8s: validate
 test-1.22: 
 	./scripts/make-cluster.sh --region=$(shell cat manifest-1.22.9.json | jq -r '.builds[-1].artifact_id' | cut -d':' -f1) --ami=$(shell cat manifest-1.22.9.json | jq -r '.builds[-1].artifact_id' | cut -d':' -f2)
 	./test-cluster.sh
-	./scripts/make-cluster.sh --cleanup
+	./scripts/make-cluster.sh --region=$(shell cat manifest-1.22.9.json | jq -r '.builds[-1].artifact_id' | cut -d':' -f1) --cleanup
