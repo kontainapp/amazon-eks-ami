@@ -1,4 +1,6 @@
-#!/bin/sh
+#!/bin/bash
+
+[ "$TRACE" ] && set -x
 
 region=us-east-2
 ami_id=''
@@ -10,6 +12,7 @@ do
    case "$arg" in
         --region=*)
         region="${1#*=}"
+        arg_count=$((arg_count-1))
         ;;
         --ami=*)
         ami_id="${1#*=}"
@@ -247,6 +250,7 @@ main() {
         json_string="#!/bin/bash
 /etc/eks/bootstrap.sh $cluster_name"
 
+        echo "  writing user data"
         echo "$json_string" > user_data.txt
         
         USER_DATA=$(base64 --wrap=0 user_data.txt)
@@ -264,8 +268,11 @@ main() {
                     }
                 ]
             }")
+        
+        echo "  writing launch config"
         echo "$json_string" > launch-config.json
 
+        echo "  creating template"
         aws --region=$region ec2  create-launch-template --launch-template-name $launch_template_name \
             --launch-template-data file://launch-config.json > /dev/null
     else
