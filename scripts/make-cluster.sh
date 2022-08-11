@@ -51,6 +51,17 @@ do_cleanup() {
     aws --no-paginate --region=$region eks wait cluster-deleted --name $cluster_name --no-paginate
 
     echo "delete cloudformation stack"
+    VPC_ID=$(aws --region=$region cloudformation describe-stacks --output text --stack-name $stack_name  --query="Stacks[0].Outputs[?OutputKey=='VpcId'].OutputValue|[0]" 2> /dev/null)
+    ELB_S_GROUP=$(aws --region $region ec2 describe-security-groups --output text --filters Name=vpc-id,Values=$VPC_ID Name=group-name,Values=k8s-elb* --query "SecurityGroups[0].GroupId")
+    STACK_GROUP=$(aws --region $region ec2 describe-security-groups --output text --filters Name=vpc-id,Values=$VPC_ID Name=group-name,Values=kontain-eks-vpc-stack* --query "SecurityGroups[0].GroupId")
+
+    echo "  delete Stack security group"
+    aws --region $region ec2 delete-security-group --group-id $STACK_GROUP --output text > /dev/null
+
+    echo "  delete ELB security group"
+    aws --region $region ec2 delete-security-group --group-id $ELB_S_GROUP --output text > /dev/null
+
+    echo "  delete VPC and stack "
     aws --no-paginate --region=$region cloudformation delete-stack  --stack-name $stack_name --output text > /dev/null
     aws --no-paginate --no-cli-pager --region $region cloudformation wait stack-delete-complete --stack-name $stack_name
 
