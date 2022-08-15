@@ -350,6 +350,7 @@ sudo $TEMPLATE_DIR/kkm.run
 # Install KM Binaries
 sudo mkdir -p /opt/kontain/bin
 sudo cp $TEMPLATE_DIR/km/km /opt/kontain/bin/km
+sudo cp $TEMPLATE_DIR/bin/km_cli /opt/kontain/bin/km_cli
 sudo cp $TEMPLATE_DIR/container-runtime/krun /opt/kontain/bin/krun
 sudo cp $TEMPLATE_DIR/cloud/k8s/deploy/shim/containerd-shim-krun-v2 /usr/bin/containerd-shim-krun-v2
 
