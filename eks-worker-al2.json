@@ -41,6 +41,9 @@
     "builders": [
         {
             "type": "amazon-ebs",
+            "ami_groups": [
+               "all"
+            ],
             "region": "{{user `aws_region`}}",
             "source_ami": "{{user `source_ami_id`}}",
             "ami_users": "{{user `ami_users`}}",
