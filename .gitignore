@@ -7,3 +7,4 @@ node-role-trust-policy.json
 node-trust-policy.json
 user_data.txt
 manifest-*.json
+tmp.json

@@ -2,6 +2,7 @@
     "variables": {
         "aws_region": "us-west-2",
         "ami_name": null,
+        "ami_version": "{{env `ami_version`}}",
         "creator": "{{env `USER`}}",
         "encrypted": "false",
         "kms_key_id": "",
@@ -41,9 +42,7 @@
     "builders": [
         {
             "type": "amazon-ebs",
-            "ami_groups": [
-               "all"
-            ],
+            "ami_groups": [],
             "region": "{{user `aws_region`}}",
             "source_ami": "{{user `source_ami_id`}}",
             "ami_users": "{{user `ami_users`}}",
@@ -98,7 +97,9 @@
                 "containerd_version": "{{ user `containerd_version`}}",
                 "source_ami_id": "{{ user `source_ami_id`}}",
                 "kubernetes": "{{ user `kubernetes_version`}}/{{ user `kubernetes_build_date` }}/bin/linux/{{ user `arch` }}",
-                "cni_plugin_version": "{{ user `cni_plugin_version`}}"
+                "cni_plugin_version": "{{ user `cni_plugin_version`}}",
+                "Release": "{{ user `ami_version`}}"
+
             },
             "ami_name": "{{user `ami_name`}}",
             "ami_description": "{{ user `ami_description` }}, (k8s: {{ user `kubernetes_version` }}, docker: {{ user `docker_version` }}, containerd: {{ user `containerd_version` }})"
